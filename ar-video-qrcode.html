@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<head>
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<title>AR Video sobre QR Code</title>
+	<!-- include three.js library -->
+	<script src='js/three.js'></script>
+	<!-- include jsartookit -->
+	<script src="jsartoolkit5/artoolkit.min.js"></script>
+	<script src="jsartoolkit5/artoolkit.api.js"></script>
+	<!-- include threex.artoolkit -->
+	<script src="threex/threex-artoolkitsource.js"></script>
+	<script src="threex/threex-artoolkitcontext.js"></script>
+	<script src="threex/threex-arbasecontrols.js"></script>
+	<script src="threex/threex-armarkercontrols.js"></script>
+</head>
+
+<body style='margin : 0px; overflow: hidden; font-family: Monospace;'>
+
+<!-- Vídeo de exemplo -->
+<video id="video" autoplay loop crossOrigin="anonymous" webkit-playsinline style="display:none">
+	<source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type='video/mp4'>
+	<source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.webm" type='video/webm'>
+</video>
+
+<!-- Instruções na tela -->
+<div id="instructions" style="position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-family: Arial; z-index: 100;">
+	<h3>Realidade Aumentada - Vídeo sobre QR Code</h3>
+	<p>Aponte a câmera para um QR code ou código de barras para ver o vídeo!</p>
+	<p>Códigos suportados: 0, 1, 2, 3, 4, 5</p>
+	<button onclick="toggleInstructions()" style="margin-top: 10px; padding: 5px 10px;">Ocultar</button>
+</div>
+
+<script>
+
+var scene, camera, renderer, clock, deltaTime, totalTime;
+var arToolkitSource, arToolkitContext;
+var markerRoots = [];
+var videoMeshes = [];
+
+initialize();
+animate();
+
+function initialize()
+{
+	scene = new THREE.Scene();
+
+	let ambientLight = new THREE.AmbientLight( 0xcccccc, 0.8 );
+	scene.add( ambientLight );
+				
+	camera = new THREE.Camera();
+	scene.add(camera);
+
+	renderer = new THREE.WebGLRenderer({
+		antialias : true,
+		alpha: true
+	});
+	renderer.setClearColor(new THREE.Color('lightgrey'), 0)
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.domElement.style.position = 'absolute'
+	renderer.domElement.style.top = '0px'
+	renderer.domElement.style.left = '0px'
+	document.body.appendChild( renderer.domElement );
+
+	clock = new THREE.Clock();
+	deltaTime = 0;
+	totalTime = 0;
+	
+	////////////////////////////////////////////////////////////
+	// setup arToolkitSource
+	////////////////////////////////////////////////////////////
+
+	arToolkitSource = new THREEx.ArToolkitSource({
+		sourceType : 'webcam',
+	});
+
+	function onResize()
+	{
+		arToolkitSource.onResize()	
+		arToolkitSource.copySizeTo(renderer.domElement)	
+		if ( arToolkitContext.arController !== null )
+		{
+			arToolkitSource.copySizeTo(arToolkitContext.arController.canvas)	
+		}	
+	}
+
+	arToolkitSource.init(function onReady(){
+		onResize()
+	});
+	
+	// handle resize event
+	window.addEventListener('resize', function(){
+		onResize()
+	});
+	
+	////////////////////////////////////////////////////////////
+	// setup arToolkitContext
+	////////////////////////////////////////////////////////////	
+
+	// create atToolkitContext
+	arToolkitContext = new THREEx.ArToolkitContext({
+		cameraParametersUrl: 'data/camera_para.dat',
+		detectionMode: "mono_and_matrix",
+		matrixCodeType: "3x3",
+	});
+	
+	// copy projection matrix to camera when initialization complete
+	arToolkitContext.init( function onCompleted(){
+		camera.projectionMatrix.copy( arToolkitContext.getProjectionMatrix() );
+	});
+
+	////////////////////////////////////////////////////////////
+	// setup markerRoots para múltiplos QR codes
+	////////////////////////////////////////////////////////////
+
+	// Criar marcadores para códigos de barras 0-5
+	for(let i = 0; i < 6; i++) {
+		let markerRoot = new THREE.Group();
+		scene.add(markerRoot);
+		markerRoots.push(markerRoot);
+		
+		let markerControls = new THREEx.ArMarkerControls(arToolkitContext, markerRoot, {
+			type: "barcode", 
+			barcodeValue: i,
+		});
+
+		// Criar o plano de vídeo para cada marcador
+		let geometry = new THREE.PlaneBufferGeometry(2, 1.5, 4, 4);
+
+		let video = document.getElementById( 'video' );
+		let texture = new THREE.VideoTexture( video );
+		texture.minFilter = THREE.LinearFilter;
+		texture.magFilter = THREE.LinearFilter;
+		texture.format = THREE.RGBFormat;
+		
+		let material = new THREE.MeshBasicMaterial( { 
+			map: texture,
+			transparent: true,
+			opacity: 0.9
+		});
+		
+		let videoMesh = new THREE.Mesh( geometry, material );
+		videoMesh.rotation.x = -Math.PI/2;
+		videoMesh.position.y = 0.01; // Ligeiramente acima do marcador
+		
+		markerRoot.add( videoMesh );
+		videoMeshes.push(videoMesh);
+
+		// Adicionar uma moldura ao redor do vídeo
+		let frameGeometry = new THREE.PlaneBufferGeometry(2.2, 1.7, 1, 1);
+		let frameMaterial = new THREE.MeshBasicMaterial({ 
+			color: 0x333333,
+			transparent: true,
+			opacity: 0.8
+		});
+		let frameMesh = new THREE.Mesh( frameGeometry, frameMaterial );
+		frameMesh.rotation.x = -Math.PI/2;
+		frameMesh.position.y = 0.005; // Ligeiramente abaixo do vídeo
+		
+		markerRoot.add( frameMesh );
+	}
+
+	// Adicionar luz pontual para melhor visualização
+	let pointLight = new THREE.PointLight( 0xffffff, 0.5, 100 );
+	pointLight.position.set( 0, 5, 0 );
+	scene.add( pointLight );
+
+	// Iniciar o vídeo quando a página carregar
+	setTimeout(function() {
+		video.play();
+	}, 1000);
+}
+
+function update()
+{
+	// update artoolkit on every frame
+	if ( arToolkitSource.ready !== false )
+		arToolkitContext.update( arToolkitSource.domElement );
+
+	// Adicionar uma rotação sutil aos vídeos quando visíveis
+	for(let i = 0; i < videoMeshes.length; i++) {
+		if(markerRoots[i].visible) {
+			// Pequena animação de flutuação
+			videoMeshes[i].position.y = 0.01 + Math.sin(totalTime * 2 + i) * 0.02;
+		}
+	}
+}
+
+function render()
+{
+	renderer.render( scene, camera );
+}
+
+function animate()
+{
+	requestAnimationFrame(animate);
+	deltaTime = clock.getDelta();
+	totalTime += deltaTime;
+	update();
+	render();
+}
+
+// Função para alternar as instruções
+function toggleInstructions() {
+	var instructions = document.getElementById('instructions');
+	if (instructions.style.display === 'none') {
+		instructions.style.display = 'block';
+	} else {
+		instructions.style.display = 'none';
+	}
+}
+
+// Ocultar instruções automaticamente após 10 segundos
+setTimeout(function() {
+	var instructions = document.getElementById('instructions');
+	instructions.style.opacity = '0.5';
+}, 10000);
+
+</script>
+
+</body>
+</html>
